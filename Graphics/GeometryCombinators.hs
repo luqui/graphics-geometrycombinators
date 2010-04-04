@@ -1,5 +1,6 @@
 module Graphics.GeometryCombinators 
     ( R, R3, Color(..), modulate
+    , Camera(..), defaultCamera
     , Geometry
     , render
     , triangle
@@ -9,6 +10,8 @@ module Graphics.GeometryCombinators
 where
 
 import qualified Graphics.Rendering.OpenGL.GL as GL
+import qualified Graphics.Rendering.OpenGL.GLU as GLU
+import Control.Applicative
 
 type R = GL.GLdouble
 type R3 = (R,R,R)
@@ -20,8 +23,32 @@ modulate (Color r g b a) (Color r' g' b' a') = Color (r*r') (g*g') (b*b') (a*a')
 
 newtype Geometry = Geometry { renderG :: Color -> IO () }
 
-render :: Geometry -> IO ()
-render geom = renderG geom (Color 1 1 1 1)
+data Camera = Camera {
+    cameraPosition  :: R3,
+    cameraTarget    :: R3,
+    cameraUp        :: R3,
+    cameraFOV       :: R,
+    cameraAspect    :: R,
+    cameraNearPlane :: R,
+    cameraFarPlane  :: R
+  }
+
+defaultCamera :: Camera
+defaultCamera = Camera {
+    cameraPosition  = (0,0,1),
+    cameraTarget    = (0,0,0),
+    cameraUp        = (0,1,0),
+    cameraFOV       = 30,
+    cameraAspect    = 1,
+    cameraNearPlane = 0.01,
+    cameraFarPlane  = 100
+  }
+
+render :: Camera -> Geometry -> IO ()
+render cam geom = GL.preservingAttrib [GL.AllServerAttributes] $ do
+    GLU.perspective <$> (toDegrees . cameraFOV) <*> cameraAspect <*> cameraNearPlane <*> cameraFarPlane $ cam
+    GLU.lookAt <$> (glVertex . cameraPosition) <*> (glVertex . cameraTarget) <*> (glVector . cameraUp) $ cam
+    renderG geom (Color 1 1 1 1)
 
 triangle :: R3 -> R3 -> R3 -> Geometry
 triangle p1 p2 p3 = Geometry $ \col -> do
@@ -49,8 +76,11 @@ translate p geom = Geometry $ \col -> GL.preservingMatrix $ do
 
 rotate :: R3 -> R -> Geometry -> Geometry
 rotate axis angle geom = Geometry $ \col -> GL.preservingMatrix $ do
-    GL.rotate angle (glVector axis)
+    GL.rotate (toDegrees angle) (glVector axis)
     renderG geom col
+
+toDegrees :: R -> R
+toDegrees x = 180 * x / pi
 
 scale :: R -> R -> R -> Geometry -> Geometry
 scale sx sy sz geom = Geometry $ \col -> GL.preservingMatrix $ do
